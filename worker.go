@@ -134,8 +134,11 @@ type Worker struct {
 	slots chan struct{}
 	wake  chan struct{}
 
+	// inFlight is a set of deliveries, not of jobs. One worker can hold two
+	// deliveries of the same job: when a lease lapses, the job can come back to the
+	// worker whose old handler is still running, and both must stay tracked.
 	mu       sync.Mutex
-	inFlight map[string]*flight
+	inFlight map[*flight]struct{}
 	handling sync.WaitGroup
 }
 
@@ -171,7 +174,7 @@ func NewWorker(client *Client, cfg WorkerConfig) (*Worker, error) {
 		handlers: make(map[string]Handler),
 		slots:    make(chan struct{}, cfg.Concurrency),
 		wake:     make(chan struct{}, 1),
-		inFlight: make(map[string]*flight),
+		inFlight: make(map[*flight]struct{}),
 	}, nil
 }
 
@@ -294,7 +297,7 @@ func (w *Worker) start(job *Job, sent time.Time) {
 		leaseUntil: sent.Add(w.cfg.LeaseDuration),
 	}
 	w.mu.Lock()
-	w.inFlight[job.ID] = f
+	w.inFlight[f] = struct{}{}
 	w.mu.Unlock()
 	w.metrics.inFlight.Inc()
 
@@ -303,7 +306,7 @@ func (w *Worker) start(job *Job, sent time.Time) {
 			stopTimer()
 			cancel(nil)
 			w.mu.Lock()
-			delete(w.inFlight, job.ID)
+			delete(w.inFlight, f)
 			w.mu.Unlock()
 			w.metrics.inFlight.Dec()
 			<-w.slots
@@ -445,7 +448,7 @@ func (w *Worker) beat() {
 	var jobs []*Job
 
 	w.mu.Lock()
-	for _, f := range w.inFlight {
+	for f := range w.inFlight {
 		if sent.After(f.leaseUntil) {
 			// No renewal reached Redis in time. Assume another worker has the job
 			// and tell the handler to stop.
@@ -591,7 +594,7 @@ func (w *Worker) snapshot() []*flight {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	flights := make([]*flight, 0, len(w.inFlight))
-	for _, f := range w.inFlight {
+	for f := range w.inFlight {
 		flights = append(flights, f)
 	}
 	return flights

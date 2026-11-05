@@ -83,6 +83,19 @@ var mutants = []mutant{
 		tags: "integration", pkg: ".", test: "TestShutdownFinishesInFlightJob",
 	},
 	{
+		// A second delivery of a job replaces the first in the set of running work.
+		name: "deliveries are tracked by job id",
+		edits: []edit{
+			{"worker.go", "inFlight map[*flight]struct{}", "inFlight map[string]*flight"},
+			{"worker.go", "inFlight: make(map[*flight]struct{}),", "inFlight: make(map[string]*flight),"},
+			{"worker.go", "w.inFlight[f] = struct{}{}", "w.inFlight[job.ID] = f"},
+			{"worker.go", "delete(w.inFlight, f)", "delete(w.inFlight, job.ID)"},
+			{"worker.go", "for f := range w.inFlight {\n\t\tif sent.After", "for _, f := range w.inFlight {\n\t\tif sent.After"},
+			{"worker.go", "for f := range w.inFlight {\n\t\tflights = append", "for _, f := range w.inFlight {\n\t\tflights = append"},
+		},
+		tags: "integration", pkg: ".", test: "TestTwoDeliveriesOfOneJob",
+	},
+	{
 		// The window this opens is the whole reason dequeue is one Lua script: two
 		// workers read the same id before either removes it.
 		name: "dequeue reads then removes in two steps",

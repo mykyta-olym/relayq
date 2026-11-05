@@ -828,6 +828,58 @@ func TestLostLeaseCancelsTheHandler(t *testing.T) {
 	}
 }
 
+// A lapsed lease can bring a job back to the worker whose old handler is still
+// running. Both deliveries have to stay tracked. When the second one replaced the
+// first, the old handler was never cancelled and shutdown waited for it forever.
+func TestTwoDeliveriesOfOneJobInOneWorkerBothStayTracked(t *testing.T) {
+	t.Parallel()
+	c := newClient(t)
+	cfg := fastConfig("q")
+	cfg.LeaseDuration = time.Second
+	cfg.MaintenanceInterval = time.Hour // only this test reclaims
+	cfg.ShutdownTimeout = 100 * time.Millisecond
+	started := make(chan int64, 2)
+	r := startWorker(t, c, cfg, map[string]Handler{
+		"t": func(ctx context.Context, job *Job) error {
+			started <- job.Delivery
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	})
+	id := mustEnqueue(t, c, "q", "t")
+	if got := <-started; got != 1 {
+		t.Fatalf("first delivery %d", got)
+	}
+
+	keys := newQueueKeys(c.namespace, "q")
+	if err := c.rdb.ZAdd(context.Background(), keys.active, redis.Z{Score: 1, Member: id}).Err(); err != nil {
+		t.Fatal(err)
+	}
+	mustMaintain(t, c, "q")
+	select {
+	case got := <-started:
+		if got != 2 {
+			t.Fatalf("second delivery %d", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("job was not redelivered")
+	}
+
+	stopped := make(chan error, 1)
+	go func() { stopped <- r.stop() }()
+	select {
+	case err := <-stopped:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("shutdown hung on a delivery it lost track of")
+	}
+	if job := mustJob(t, c, "q", id); job.State != StateReady || job.Delivery != 2 {
+		t.Fatalf("job after shutdown: %+v", job)
+	}
+}
+
 func TestShutdownFinishesInFlightJob(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)
