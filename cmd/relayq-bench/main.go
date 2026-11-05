@@ -23,7 +23,10 @@ import (
 	"github.com/mykyta-olym/relayq"
 )
 
-const benchQueue = "bench"
+const (
+	benchQueue = "bench"
+	fillBatch  = 100
+)
 
 type config struct {
 	url         string
@@ -68,6 +71,9 @@ func main() {
 func run(cfg config) error {
 	if cfg.jobs%(cfg.producers*cfg.batch) != 0 {
 		return errors.New("jobs must divide evenly by producers*batch")
+	}
+	if cfg.scenario == "process" && cfg.jobs%(cfg.producers*fillBatch) != 0 {
+		return fmt.Errorf("process fills the queue in batches of %d, so jobs must divide evenly by producers*%d", fillBatch, fillBatch)
 	}
 	if cfg.payload < binary.MaxVarintLen64 {
 		return fmt.Errorf("payload must be at least %d bytes, it carries the send time", binary.MaxVarintLen64)
@@ -340,7 +346,7 @@ func benchProcess(cfg config, namespace string) (result, error) {
 	client := relayq.NewClient(rdb, relayq.WithNamespace(namespace))
 
 	fill := cfg
-	fill.batch = 100
+	fill.batch = fillBatch
 	fill.rate = 0
 	if err := produce(fill, client, nil); err != nil {
 		return result{}, err
