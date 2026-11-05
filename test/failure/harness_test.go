@@ -92,7 +92,7 @@ func newLab(t *testing.T, external bool, redisArgs ...string) *lab {
 // proc is a running worker.
 type proc struct {
 	cmd    *exec.Cmd
-	stderr *bytes.Buffer
+	stderr *lockedWriter
 	done   chan error
 }
 
@@ -101,8 +101,8 @@ func (l *lab) spawn(flags ...string) *proc {
 	args := []string{"-redis", l.redis.Addr, "-namespace", l.ns, "-queue", queue, "-evidence", l.evidence}
 	args = append(args, flags...)
 	cmd := exec.Command(workerBinary, args...)
-	stderr := &bytes.Buffer{}
-	cmd.Stderr = &lockedWriter{buffer: stderr}
+	stderr := &lockedWriter{buffer: &bytes.Buffer{}}
+	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		l.t.Fatal(err)
 	}
@@ -150,6 +150,13 @@ func (w *lockedWriter) Write(b []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.buffer.Write(b)
+}
+
+// String reads under the same lock, because the process may still be writing.
+func (w *lockedWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buffer.String()
 }
 
 func (l *lab) waitFor(timeout time.Duration, what string, cond func() bool) {
