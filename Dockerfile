@@ -7,7 +7,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ \
     ./cmd/relayq ./cmd/relayq-bench ./examples/demo/producer ./examples/demo/worker \
     && mv /out/producer /out/demo-producer && mv /out/worker /out/demo-worker
 
-FROM alpine:3.22
+FROM alpine:3.24
 COPY --from=build /out/ /usr/local/bin/
 USER 65534:65534
 ENTRYPOINT []
