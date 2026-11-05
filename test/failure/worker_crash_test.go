@@ -75,7 +75,7 @@ func TestCrashBetweenSideEffectAndAckDuplicatesTheEffect(t *testing.T) {
 	worker := l.spawn("-lease", "1s")
 	id := l.enqueue("effect-then-crash", "{}")
 	l.waitFor(10*time.Second, "worker to crash itself", func() bool { return l.count("effect", id) == 1 })
-	<-waitChan(worker)
+	_ = worker.wait()
 
 	l.spawn("-lease", "1s")
 	l.waitState(20*time.Second, id, relayq.StateCompleted)

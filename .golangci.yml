@@ -1,0 +1,42 @@
+version: "2"
+
+run:
+  build-tags:
+    - integration
+    - failure
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - errorlint
+    - gocritic
+    - gosec
+    - misspell
+    - nilerr
+    - unconvert
+    - unparam
+    - wastedassign
+  exclusions:
+    rules:
+      # Tests start the worker binary and talk to throwaway servers on purpose.
+      - path: _test\.go|^test/|^internal/redistest/
+        linters:
+          - gosec
+      # math/rand is only used for jitter and demo data. Nothing here is a secret.
+      - text: G404
+        linters:
+          - gosec
+      # The CLI exists to call the server its user names.
+      - path: ^cmd/relayq/commands\.go$
+        text: G704
+        linters:
+          - gosec
+      # Test helpers take the same arguments on purpose, for readable call sites.
+      - path: _test\.go
+        linters:
+          - unparam
+
+formatters:
+  enable:
+    - gofmt

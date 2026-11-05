@@ -68,7 +68,7 @@ func Start(allowExternal bool, args ...string) (*Server, error) {
 		image, serverBinary(image),
 	}
 	run = append(run, args...)
-	if _, err := docker(run...); err != nil {
+	if err := docker(run...); err != nil {
 		return nil, err
 	}
 	if err := s.waitReady(60 * time.Second); err != nil {
@@ -98,7 +98,7 @@ func (s *Server) Client() *redis.Client {
 // GracefulRestart stops the server with SIGTERM, which lets it flush, then starts
 // it again.
 func (s *Server) GracefulRestart() error {
-	if _, err := docker("stop", "-t", "30", s.name); err != nil {
+	if err := docker("stop", "-t", "30", s.name); err != nil {
 		return err
 	}
 	return s.startAgain()
@@ -115,28 +115,25 @@ func (s *Server) CrashRestart() error {
 
 // Kill sends SIGKILL and leaves the server down.
 func (s *Server) Kill() error {
-	_, err := docker("kill", "--signal", "KILL", s.name)
-	return err
+	return docker("kill", "--signal", "KILL", s.name)
 }
 
 // Pause freezes the server. Connections stay open and nothing answers, which is
 // what a worker sees during a network partition.
 func (s *Server) Pause() error {
-	_, err := docker("pause", s.name)
-	return err
+	return docker("pause", s.name)
 }
 
 // Unpause resumes a frozen server.
 func (s *Server) Unpause() error {
-	_, err := docker("unpause", s.name)
-	return err
+	return docker("unpause", s.name)
 }
 
 // StartAgain brings a killed server back.
 func (s *Server) StartAgain() error { return s.startAgain() }
 
 func (s *Server) startAgain() error {
-	if _, err := docker("start", s.name); err != nil {
+	if err := docker("start", s.name); err != nil {
 		return err
 	}
 	return s.waitReady(60 * time.Second)
@@ -147,8 +144,8 @@ func (s *Server) Remove() {
 	if !s.container {
 		return
 	}
-	_, _ = docker("rm", "-f", "-v", s.name)
-	_, _ = docker("volume", "rm", "-f", s.volume)
+	_ = docker("rm", "-f", "-v", s.name)
+	_ = docker("volume", "rm", "-f", s.volume)
 }
 
 // Version returns the server version string.
@@ -186,14 +183,14 @@ func (s *Server) waitReady(timeout time.Duration) error {
 	return fmt.Errorf("redis at %s not ready: %w", s.Addr, last)
 }
 
-func docker(args ...string) (string, error) {
+func docker(args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("docker %s: %w: %s", strings.Join(args, " "), err, out)
+		return fmt.Errorf("docker %s: %w: %s", strings.Join(args, " "), err, out)
 	}
-	return strings.TrimSpace(string(out)), nil
+	return nil
 }
 
 func freePort() (int, error) {

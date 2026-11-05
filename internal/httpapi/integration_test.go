@@ -103,7 +103,9 @@ func TestAPIEndToEnd(t *testing.T) {
 	go func() { done <- worker.Run(ctx) }()
 	t.Cleanup(func() {
 		cancel()
-		<-done
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
 	})
 
 	var first relayq.Enqueued

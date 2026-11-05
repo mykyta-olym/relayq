@@ -189,7 +189,7 @@ func (req *enqueueRequest) options(headerKey string) ([]relayq.Option, error) {
 		}
 		parsed, err := time.ParseDuration(field.raw)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %s: %v", relayq.ErrInvalid, field.name, err)
+			return nil, fmt.Errorf("%w: %s: %w", relayq.ErrInvalid, field.name, err)
 		}
 		*field.target = parsed
 	}

@@ -3,8 +3,6 @@
 package failure
 
 import (
-	"errors"
-	"os/exec"
 	"syscall"
 	"testing"
 	"time"
@@ -25,7 +23,7 @@ func TestSIGTERMFinishesTheRunningJob(t *testing.T) {
 	if err := worker.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}
-	if err := <-waitChan(worker); err != nil {
+	if err := worker.wait(); err != nil {
 		t.Fatalf("worker exit: %v\n%s", err, worker.stderr)
 	}
 
@@ -52,12 +50,7 @@ func TestSIGTERMReleasesAJobThatCannotFinish(t *testing.T) {
 	if err := worker.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}
-	err := <-waitChan(worker)
-	var exit *exec.ExitError
-	if err != nil && !errors.As(err, &exit) {
-		t.Fatal(err)
-	}
-	if err != nil {
+	if err := worker.wait(); err != nil {
 		t.Fatalf("worker exit: %v\n%s", err, worker.stderr)
 	}
 

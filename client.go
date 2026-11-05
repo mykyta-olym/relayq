@@ -75,7 +75,7 @@ func (c *Client) Enqueue(ctx context.Context, queue, jobType string, payload []b
 func (c *Client) EnqueueJSON(ctx context.Context, queue, jobType string, v any, opts ...Option) (Enqueued, error) {
 	payload, err := json.Marshal(v)
 	if err != nil {
-		return Enqueued{}, fmt.Errorf("%w: marshal payload: %v", ErrInvalid, err)
+		return Enqueued{}, fmt.Errorf("%w: marshal payload: %w", ErrInvalid, err)
 	}
 	return c.Enqueue(ctx, queue, jobType, payload, opts...)
 }

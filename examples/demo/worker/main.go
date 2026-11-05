@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
@@ -31,10 +32,16 @@ func main() {
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	options, err := redis.ParseURL(*redisURL)
-	if err != nil {
-		log.Error("bad Redis URL", "error", err)
+	if err := run(log, *redisURL, *queue, *concurrency, *lease, *metrics); err != nil {
+		log.Error("worker stopped with an error", "error", err)
 		os.Exit(1)
+	}
+}
+
+func run(log *slog.Logger, redisURL, queue string, concurrency int, lease time.Duration, metrics string) error {
+	options, err := redis.ParseURL(redisURL)
+	if err != nil {
+		return fmt.Errorf("parse Redis URL: %w", err)
 	}
 	options.ContextTimeoutEnabled = true
 	rdb := redis.NewClient(options)
@@ -42,17 +49,16 @@ func main() {
 
 	registry := prometheus.NewRegistry()
 	worker, err := relayq.NewWorker(relayq.NewClient(rdb), relayq.WorkerConfig{
-		Queue:           *queue,
-		Concurrency:     *concurrency,
-		LeaseDuration:   *lease,
+		Queue:           queue,
+		Concurrency:     concurrency,
+		LeaseDuration:   lease,
 		ShutdownTimeout: 20 * time.Second,
 		Backoff:         relayq.Backoff{Base: 500 * time.Millisecond, Max: 10 * time.Second, Jitter: 0.5},
 		Logger:          log,
 		Registerer:      registry,
 	})
 	if err != nil {
-		log.Error("create worker", "error", err)
-		os.Exit(1)
+		return err
 	}
 
 	worker.Handle("email.send", func(ctx context.Context, job *relayq.Job) error {
@@ -86,9 +92,9 @@ func main() {
 		return errors.New("invoice template is missing")
 	})
 
-	if *metrics != "" {
+	if metrics != "" {
 		server := &http.Server{
-			Addr:              *metrics,
+			Addr:              metrics,
 			Handler:           promhttp.HandlerFor(registry, promhttp.HandlerOpts{}),
 			ReadHeaderTimeout: 5 * time.Second,
 		}
@@ -104,10 +110,7 @@ func main() {
 	for _, warning := range relayq.NewClient(rdb).CheckRedis(ctx) {
 		log.Warn(warning)
 	}
-	if err := worker.Run(ctx); err != nil {
-		log.Error("worker stopped with an error", "error", err)
-		os.Exit(1)
-	}
+	return worker.Run(ctx)
 }
 
 func pause(ctx context.Context, d time.Duration) error {

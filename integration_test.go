@@ -750,12 +750,15 @@ func TestHeartbeatKeepsALongJobFromRedelivery(t *testing.T) {
 	t.Parallel()
 	c := newClient(t)
 	cfg := fastConfig("q")
-	cfg.LeaseDuration = 300 * time.Millisecond
+	// One second, not less: with the whole suite running in parallel under the race
+	// detector, a shorter lease can lapse for real and redeliver, which is correct
+	// behaviour and not what this test is about.
+	cfg.LeaseDuration = time.Second
 	var runs atomic.Int32
 	handler := func(ctx context.Context, _ *Job) error {
 		runs.Add(1)
 		select {
-		case <-time.After(1200 * time.Millisecond): // four lease periods
+		case <-time.After(3500 * time.Millisecond): // several lease periods
 			return nil
 		case <-ctx.Done():
 			return ctx.Err()
@@ -766,7 +769,7 @@ func TestHeartbeatKeepsALongJobFromRedelivery(t *testing.T) {
 	startWorker(t, c, cfg, map[string]Handler{"t": handler})
 
 	id := mustEnqueue(t, c, "q", "t")
-	eventually(t, 5*time.Second, "completion", func() bool {
+	eventually(t, 15*time.Second, "completion", func() bool {
 		job, err := c.Job(context.Background(), "q", id)
 		return err == nil && job.State == StateCompleted
 	})
@@ -1052,6 +1055,29 @@ func TestQueuesLists(t *testing.T) {
 	got, err := c.Queues(context.Background())
 	if err != nil || !slices.Equal(got, []string{"a", "b"}) {
 		t.Fatalf("%v %v", got, err)
+	}
+}
+
+// Not parallel: it changes a server setting. Eviction is off in this suite because
+// maxmemory is unset, so the policy has no effect on other tests.
+func TestCheckRedisWarnsAboutRiskySettings(t *testing.T) {
+	c := newClient(t)
+	ctx := context.Background()
+	warnings := strings.Join(c.CheckRedis(ctx), "\n")
+	if !strings.Contains(warnings, "appendonly") {
+		t.Fatalf("no persistence warning in %q", warnings)
+	}
+	if strings.Contains(warnings, "maxmemory-policy") {
+		t.Fatalf("eviction warning on a noeviction server: %q", warnings)
+	}
+
+	if err := c.rdb.ConfigSet(ctx, "maxmemory-policy", "allkeys-lru").Err(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.rdb.ConfigSet(context.Background(), "maxmemory-policy", "noeviction") })
+	warnings = strings.Join(c.CheckRedis(ctx), "\n")
+	if !strings.Contains(warnings, "allkeys-lru") {
+		t.Fatalf("no eviction warning in %q", warnings)
 	}
 }
 

@@ -42,14 +42,13 @@ func clientFlags(flags *flag.FlagSet) func() *apiClient {
 	}
 }
 
-// do sends a request and decodes a JSON reply into out. It returns the status so
-// callers can tell a new job from a deduplicated one.
-func (c *apiClient) do(method, path string, body, out any) (int, error) {
+// do sends a request and decodes a JSON reply into out.
+func (c *apiClient) do(method, path string, body, out any) error {
 	var reader io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
 		if err != nil {
-			return 0, err
+			return err
 		}
 		reader = bytes.NewReader(raw)
 	}
@@ -57,33 +56,33 @@ func (c *apiClient) do(method, path string, body, out any) (int, error) {
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, method, c.base+path, reader)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 	res, err := c.http.Do(req)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	defer func() { _ = res.Body.Close() }()
 	raw, err := io.ReadAll(res.Body)
 	if err != nil {
-		return res.StatusCode, err
+		return err
 	}
 	if res.StatusCode >= 400 {
 		var failure struct {
 			Error struct{ Code, Message string }
 		}
 		if json.Unmarshal(raw, &failure) == nil && failure.Error.Message != "" {
-			return res.StatusCode, fmt.Errorf("%s: %s", failure.Error.Code, failure.Error.Message)
+			return fmt.Errorf("%s: %s", failure.Error.Code, failure.Error.Message)
 		}
-		return res.StatusCode, fmt.Errorf("server returned %s", res.Status)
+		return fmt.Errorf("server returned %s", res.Status)
 	}
 	if out != nil && len(raw) > 0 {
-		return res.StatusCode, json.Unmarshal(raw, out)
+		return json.Unmarshal(raw, out)
 	}
-	return res.StatusCode, nil
+	return nil
 }
 
 // parse handles interspersed flags, so "relayq job ID -queue q" works as well as
@@ -166,7 +165,7 @@ func enqueueCommand(args []string, stdout, stderr io.Writer) error {
 	}
 
 	var res relayq.Enqueued
-	if _, err := client().do("POST", "/v1/queues/"+url.PathEscape(*queue)+"/jobs", body, &res); err != nil {
+	if err := client().do("POST", "/v1/queues/"+url.PathEscape(*queue)+"/jobs", body, &res); err != nil {
 		return err
 	}
 	if res.Duplicate {
@@ -196,7 +195,7 @@ func jobCommand(args []string, stdout, stderr io.Writer) error {
 
 	var job json.RawMessage
 	path := "/v1/queues/" + url.PathEscape(*queue) + "/jobs/" + url.PathEscape(id)
-	if _, err := client().do("GET", path, nil, &job); err != nil {
+	if err := client().do("GET", path, nil, &job); err != nil {
 		return err
 	}
 	var pretty bytes.Buffer
@@ -225,7 +224,7 @@ func printJobs(client *apiClient, stdout io.Writer, queue, state string, offset,
 	}
 	var res struct{ Jobs []jobRow }
 	path := "/v1/queues/" + url.PathEscape(queue) + "/jobs?" + values.Encode()
-	if _, err := client.do("GET", path, nil, &res); err != nil {
+	if err := client.do("GET", path, nil, &res); err != nil {
 		return err
 	}
 	table := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
@@ -281,7 +280,7 @@ func statsCommand(args []string, stdout, stderr io.Writer) error {
 
 	if *queue != "" {
 		var stats relayq.QueueStats
-		if _, err := client().do("GET", "/v1/queues/"+url.PathEscape(*queue), nil, &stats); err != nil {
+		if err := client().do("GET", "/v1/queues/"+url.PathEscape(*queue), nil, &stats); err != nil {
 			return err
 		}
 		table := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
@@ -307,7 +306,7 @@ func statsCommand(args []string, stdout, stderr io.Writer) error {
 	}
 
 	var res struct{ Queues []relayq.QueueStats }
-	if _, err := client().do("GET", "/v1/queues", nil, &res); err != nil {
+	if err := client().do("GET", "/v1/queues", nil, &res); err != nil {
 		return err
 	}
 	table := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
@@ -342,7 +341,7 @@ func requeueCommand(args []string, stdout, stderr io.Writer) error {
 		path = "/v1/queues/" + url.PathEscape(*queue) + "/dead/" + url.PathEscape(id) + "/requeue"
 	}
 	var res struct{ Requeued int64 }
-	if _, err := client().do("POST", path, nil, &res); err != nil {
+	if err := client().do("POST", path, nil, &res); err != nil {
 		return err
 	}
 	_, err = fmt.Fprintln(stdout, "requeued", res.Requeued)
@@ -366,7 +365,7 @@ func deleteCommand(args []string, stdout, stderr io.Writer) error {
 		return err
 	}
 	path := "/v1/queues/" + url.PathEscape(*queue) + "/jobs/" + url.PathEscape(id)
-	if _, err := client().do("DELETE", path, nil, nil); err != nil {
+	if err := client().do("DELETE", path, nil, nil); err != nil {
 		return err
 	}
 	_, err = fmt.Fprintln(stdout, "deleted", id)

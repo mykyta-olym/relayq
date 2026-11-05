@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"io"
 	"net/http"
@@ -197,7 +198,7 @@ func TestUnknownCommand(t *testing.T) {
 func TestNoArgumentsPrintsUsage(t *testing.T) {
 	var stderr bytes.Buffer
 	err := run(nil, io.Discard, &stderr)
-	if err != flag.ErrHelp || !strings.Contains(stderr.String(), "Usage") {
+	if !errors.Is(err, flag.ErrHelp) || !strings.Contains(stderr.String(), "Usage") {
 		t.Fatalf("err %v, stderr %q", err, stderr.String())
 	}
 }

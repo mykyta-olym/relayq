@@ -69,8 +69,8 @@ func run(cfg config) error {
 	if cfg.jobs%(cfg.producers*cfg.batch) != 0 {
 		return errors.New("jobs must divide evenly by producers*batch")
 	}
-	if cfg.payload < 8 {
-		return errors.New("payload must be at least 8 bytes, it carries the send time")
+	if cfg.payload < binary.MaxVarintLen64 {
+		return fmt.Errorf("payload must be at least %d bytes, it carries the send time", binary.MaxVarintLen64)
 	}
 	scenarios := map[string]func(config, string) (result, error){
 		"enqueue": benchEnqueue,
@@ -208,7 +208,7 @@ func produce(cfg config, client *relayq.Client, record func(time.Duration)) erro
 				now := time.Now()
 				for i := range items {
 					payload := make([]byte, cfg.payload)
-					binary.LittleEndian.PutUint64(payload, uint64(now.UnixNano()))
+					binary.PutVarint(payload, now.UnixNano())
 					items[i].Payload = payload
 				}
 				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -378,7 +378,7 @@ func benchEndToEnd(cfg config, namespace string) (result, error) {
 	samples := make([]time.Duration, cfg.jobs)
 	var next atomic.Int64
 	f, err := startFleet(cfg, namespace, func(_ context.Context, job *relayq.Job) error {
-		sent := int64(binary.LittleEndian.Uint64(job.Payload))
+		sent, _ := binary.Varint(job.Payload)
 		samples[next.Add(1)-1] = time.Since(time.Unix(0, sent))
 		return nil
 	})

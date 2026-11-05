@@ -124,10 +124,11 @@ func (l *lab) spawn(flags ...string) *proc {
 // chance to run any code, so no ack, no release and no goodbye.
 func (p *proc) kill() {
 	_ = p.cmd.Process.Kill()
-	<-waitChan(p)
+	_ = p.wait()
 }
 
-func waitChan(p *proc) <-chan error { return p.done }
+// wait blocks until the process has exited.
+func (p *proc) wait() error { return <-p.done }
 
 func (l *lab) stopAll() {
 	l.mu.Lock()

@@ -43,6 +43,13 @@ type work struct {
 }
 
 func main() {
+	if err := run(); err != nil {
+		fmt.Fprintln(os.Stderr, "run:", err)
+		os.Exit(3)
+	}
+}
+
+func run() error {
 	addr := flag.String("redis", "", "Redis address")
 	namespace := flag.String("namespace", "", "key prefix")
 	queue := flag.String("queue", "q", "queue")
@@ -54,7 +61,7 @@ func main() {
 
 	file, err := os.CreateTemp(*dir, fmt.Sprintf("worker-%d-*.log", os.Getpid()))
 	if err != nil {
-		panic(err)
+		return err
 	}
 	log := &evidence{file: file}
 
@@ -80,7 +87,7 @@ func main() {
 		Logger:              slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	})
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	// work sleeps for the payload duration, then succeeds.
@@ -145,8 +152,5 @@ func main() {
 	ready, _ := json.Marshal(map[string]any{"worker": worker.ID(), "pid": os.Getpid()})
 	_ = os.WriteFile(filepath.Join(*dir, fmt.Sprintf("ready-%d.json", os.Getpid())), ready, 0o600)
 
-	if err := worker.Run(ctx); err != nil {
-		fmt.Fprintln(os.Stderr, "run:", err)
-		os.Exit(3)
-	}
+	return worker.Run(ctx)
 }
