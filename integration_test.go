@@ -1243,8 +1243,11 @@ func TestManyConcurrentWorkersRunEachJobOnce(t *testing.T) {
 	const total, workers, producers = 20000, 16, 8
 
 	var seen executions
+	var doubled atomic.Int64
 	handler := func(_ context.Context, job *Job) error {
-		seen.record(job.ID)
+		if seen.record(job.ID) > 1 {
+			doubled.Add(1)
+		}
 		return nil
 	}
 	for range workers {
@@ -1279,6 +1282,9 @@ func TestManyConcurrentWorkersRunEachJobOnce(t *testing.T) {
 	close(ids)
 
 	eventually(t, 60*time.Second, "all jobs to complete", func() bool {
+		if n := doubled.Load(); n > 0 {
+			t.Fatalf("%d handler runs were for a job that had already run", n)
+		}
 		return mustStats(t, c, "q").Counters["completed"] == total
 	})
 	runs := seen.snapshot()

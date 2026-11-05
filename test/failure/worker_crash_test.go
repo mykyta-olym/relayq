@@ -28,8 +28,6 @@ func TestKilledWorkerJobIsRedelivered(t *testing.T) {
 	}
 	killedAt := time.Now()
 	first.kill()
-	t.Logf("killed worker %s while it ran job %s, lease until %s",
-		before.LeaseOwner, id, before.LeaseUntil.Format(time.RFC3339Nano))
 
 	// The dead worker cannot ack or release, so the job stays active and no one
 	// else may take it yet.
