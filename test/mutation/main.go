@@ -136,6 +136,17 @@ func apply(edits []edit) (restore func(), err error) {
 	return restore, nil
 }
 
+// reason shows why a mutant died, so one that only crashed is not mistaken for one
+// the test really noticed.
+func reason(output string) string {
+	for line := range strings.Lines(output) {
+		if strings.Contains(line, "_test.go:") {
+			return strings.TrimSpace(line)
+		}
+	}
+	return "no assertion line, inspect by hand"
+}
+
 func main() {
 	survived := 0
 	for _, m := range mutants {
@@ -157,7 +168,7 @@ func main() {
 			fmt.Printf("BROKEN    %s\n%s\n", m.name, out)
 			os.Exit(2)
 		default:
-			fmt.Printf("caught    %-42s %s\n", m.name, m.test)
+			fmt.Printf("caught    %-42s %s\n          %s\n", m.name, m.test, reason(string(out)))
 		}
 	}
 	if survived > 0 {
