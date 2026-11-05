@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -246,8 +247,15 @@ func TestJobsSurviveRedisCrashWhileRunning(t *testing.T) {
 	}
 
 	time.Sleep(2 * time.Second)
+	runIDBefore := l.runID()
 	began := time.Now()
-	if err := l.redis.CrashRestart(); err != nil {
+	if err := l.redis.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	// Longer than the lease, so leases taken before the crash expire while the
+	// server is down and are reclaimed when it returns.
+	time.Sleep(3 * time.Second)
+	if err := l.redis.StartAgain(); err != nil {
 		t.Fatal(err)
 	}
 	outage := time.Since(began).Round(time.Millisecond)
@@ -259,8 +267,11 @@ func TestJobsSurviveRedisCrashWhileRunning(t *testing.T) {
 		stats := l.stats()
 		return stats.Ready == 0 && stats.Active == 0 && stats.Delayed == 0
 	})
+	if l.runID() == runIDBefore {
+		t.Fatal("the server has the same run id, so it never restarted")
+	}
 	if failures.Load() == 0 {
-		t.Fatal("no enqueue failed, so the outage did not touch the producers")
+		t.Fatal("no enqueue failed during a 3s outage, so the producers never saw it")
 	}
 
 	finished := l.finishCounts()
@@ -280,6 +291,22 @@ func TestJobsSurviveRedisCrashWhileRunning(t *testing.T) {
 	t.Logf("RESULT redis down %v under load: %d jobs accepted, 0 lost, %d enqueue errors retried, "+
 		"%d duplicate finishes, %d redelivered", outage, len(accepted), failures.Load(), duplicates,
 		stats.Counters["redelivered"])
+}
+
+// runID changes every time a Redis process starts.
+func (l *lab) runID() string {
+	l.t.Helper()
+	info, err := l.rdb.Info(l.ctx(), "server").Result()
+	if err != nil {
+		l.t.Fatal(err)
+	}
+	for line := range strings.Lines(info) {
+		if id, ok := strings.CutPrefix(strings.TrimSpace(line), "run_id:"); ok {
+			return id
+		}
+	}
+	l.t.Fatal("no run_id in INFO")
+	return ""
 }
 
 // A frozen Redis looks like a network partition to the worker: heartbeats stop

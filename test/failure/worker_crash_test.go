@@ -135,8 +135,8 @@ func (l *lab) liveProc() *proc {
 // to show that every accepted job finished at least once.
 func TestChaosKillingWorkersLosesNoJob(t *testing.T) {
 	l := newLab(t, false, "--appendonly", "no", "--save", "")
-	const total, fleet = 5000, 6
-	flags := []string{"-lease", "1s", "-concurrency", "16"}
+	const total, fleet = 20000, 6
+	flags := []string{"-lease", "1s", "-concurrency", "8"}
 
 	workers := make([]*proc, fleet)
 	for i := range workers {
@@ -151,7 +151,7 @@ func TestChaosKillingWorkersLosesNoJob(t *testing.T) {
 			// many kills must not stop at the dead letter queue and pass as lost.
 			items[i] = relayq.BatchItem{
 				Type:    "work",
-				Payload: fmt.Appendf(nil, `{"ms":%d}`, rand.IntN(20)),
+				Payload: fmt.Appendf(nil, `{"ms":%d}`, rand.IntN(40)),
 				Options: []relayq.Option{relayq.MaxAttempts(100)},
 			}
 		}
@@ -190,8 +190,8 @@ func TestChaosKillingWorkersLosesNoJob(t *testing.T) {
 	if stats.Ready != 0 || stats.Active != 0 || stats.Delayed != 0 || stats.Dead != 0 {
 		t.Fatalf("leftovers: %+v", stats)
 	}
-	if kills == 0 {
-		t.Fatal("no worker was killed, so this run proved nothing")
+	if kills < 5 {
+		t.Fatalf("only %d workers killed, too few for this run to prove anything", kills)
 	}
 	if stats.Counters["redelivered"] == 0 {
 		t.Fatal("no job was redelivered, so no kill landed mid job")
