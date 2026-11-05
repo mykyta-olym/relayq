@@ -1064,8 +1064,10 @@ func TestCheckRedisWarnsAboutRiskySettings(t *testing.T) {
 	c := newClient(t)
 	ctx := context.Background()
 	warnings := strings.Join(c.CheckRedis(ctx), "\n")
-	if !strings.Contains(warnings, "appendonly") {
-		t.Fatalf("no persistence warning in %q", warnings)
+	// The suite can also run against an external server with AOF on.
+	aofOff := c.rdb.ConfigGet(ctx, "appendonly").Val()["appendonly"] == "no"
+	if strings.Contains(warnings, "appendonly") != aofOff {
+		t.Fatalf("appendonly off is %v, warnings are %q", aofOff, warnings)
 	}
 	if strings.Contains(warnings, "maxmemory-policy") {
 		t.Fatalf("eviction warning on a noeviction server: %q", warnings)
