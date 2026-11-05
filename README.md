@@ -338,7 +338,7 @@ along with `golangci-lint`, `govulncheck`, `gofmt` and `go mod tidy -diff`.
 
 ## Benchmark
 
-Measured on 2026-11-05 on one machine:
+Measured on 2026-11-05 on one machine, just before the delivery tracking fix above. That fix changed a map key and was not measured again.
 
 - Intel Core i5-10400T (6 cores, 12 threads, 2.0 GHz base), 16 GB RAM, Windows 11.
 - Docker Desktop, engine 29.7.2, Linux VM with 12 CPUs and 7.7 GiB.
