@@ -283,15 +283,18 @@ go test -race -count=1 -tags failure -timeout 15m -v ./test/failure/
 go run test/mutation/main.go
 ```
 
-The integration and failure tests start their own Redis containers and remove them.
+The integration and failure tests start their own Redis containers and remove them. A
+run that dies on a timeout cannot clean up, so its container keeps the label
+`relayq-test=1`. Setting `RELAYQ_TEST_IMAGE` runs the suite on another server: the
+integration tests also passed on `redis:8-alpine` and `valkey/valkey:8-alpine`.
 
-| Test | What it does | What happened, two full runs |
+| Test | What it does | What happened on the final commit |
 | --- | --- | --- |
 | `TestKilledWorkerJobIsRedelivered` | SIGKILL a worker mid job, then start another | Same job id redelivered 2.0 s after the kill, which is the lease. 2 handler starts, 1 finish |
 | `TestCrashBetweenSideEffectAndAckDuplicatesTheEffect` | Worker dies after its side effect, before the ack | The side effect ran twice, as documented |
 | `TestPoisonJobEndsInDeadLetterQueue` | A job kills its worker on every delivery, with 3 attempts | 3 deliveries, then the dead letter queue |
-| `TestChaosKillingWorkersLosesNoJob` | 20000 jobs, 6 worker processes, one killed about every 150 ms plus restart time until 80% are done | 37 and 36 workers killed, 260 and 257 leases redelivered, 0 lost, 0 and 3 duplicate finishes |
-| `TestJobsSurviveRedisCrashWhileRunning` | SIGKILL Redis (AOF `always`) under load. Down about 4 s, longer than the 2 s lease | 1700 and 1103 jobs accepted, 0 lost, 13 and 15 enqueue errors retried with the same key, 0 and 4 duplicate finishes |
+| `TestChaosKillingWorkersLosesNoJob` | 20000 jobs, 6 worker processes, one killed about every 150 ms plus restart time until 80% are done | 34 workers killed, 244 leases redelivered, 0 lost, 1 duplicate finish |
+| `TestJobsSurviveRedisCrashWhileRunning` | SIGKILL Redis (AOF `always`) under load. Down about 4 s, longer than the 2 s lease | 1711 jobs accepted, 0 lost, 15 enqueue errors retried with the same key, 4 duplicate finishes |
 | `TestFrozenRedisFencesTheHandler` | `docker pause` on Redis while a handler runs | The worker cancelled its own handler with `ErrLeaseLost`. The job finished on delivery 2 |
 | `TestManyConcurrentWorkersRunEachJobOnce` | 16 workers of 16 slots and 8 producers, 20000 jobs, no failures | Every job ran exactly once. This one asserts no duplicates |
 | `TestRetriesUnderConcurrencyLoseNothing` | 8 workers, 4000 jobs, random failures and delays | Every job finished, and counters match the runs recorded by the handlers exactly |
@@ -299,16 +302,27 @@ The integration and failure tests start their own Redis containers and remove th
 | `TestSIGTERMFinishesTheRunningJob` | Real SIGTERM with a 1.5 s job running, on Linux | The job finished on delivery 1 and the worker exited 0 |
 | `TestSIGTERMReleasesAJobThatCannotFinish` | Real SIGTERM with a job that outlasts the shutdown budget, on Linux | Back in `ready` with its attempt refunded, without waiting for the 30 s lease |
 
-The duplicates in those runs are case 1 from the list above, happening for real. Zero
-lost is what these tests assert. The duplicate count is only reported, and it changes
-from run to run, so read it as "it happens", not as a rate.
+The duplicates are case 1 from the list above, happening for real. Zero lost is what
+these tests assert. The duplicate count is only reported. It ranged from 0 to 4 across
+runs, so read it as "it happens", not as a rate.
 
 **Do the tests fail when they should?** `go run test/mutation/main.go` breaks one
 guarantee at a time in the source, and requires a named test to fail. For example, it
 turns the delivery token check off, stops counting attempts at delivery, and splits
-dequeue into a read and a separate remove. All 10 mutants were caught, and the runner
-prints the assertion that caught each one. Splitting dequeue fails with handlers running
-jobs that had already run, which is the reason dequeue is one script.
+dequeue into a read and a separate remove. All 11 mutants were caught, and the runner
+prints the assertion that caught each one. Splitting dequeue fails with
+`204 handler runs were for a job that had already run`, which is the reason dequeue is
+one script.
+
+**A bug that the first green runs missed.** When a lease lapses, a job can come back to
+the same worker whose old handler is still running. The worker tracked running jobs by
+id, so the second delivery replaced the first. The old handler then never heard that it
+lost its lease, and graceful shutdown waited for it forever. The failure tests could not
+see this, because they kill separate processes. It showed up as a hang when the suite ran
+in a different order, and a test that passed by timing failed every time on its own.
+Running work is now tracked per delivery, and
+`TestTwoDeliveriesOfOneJobInOneWorkerBothStayTracked` covers it. That is a reason to
+distrust a green run, including these.
 
 The two SIGTERM tests need Unix signals, so they are not built on Windows. They ran on
 Linux in a container against the demo Redis, with this command from the repository root:
