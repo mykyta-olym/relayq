@@ -63,6 +63,16 @@ func main() {
 		log.Info("resizing image", "job", job.ID, "attempt", job.Attempt)
 		return pause(ctx, time.Duration(200+rand.IntN(800))*time.Millisecond)
 	})
+	// video.encode is only sent by hand. It runs long enough to kill a worker
+	// under it, and short enough to finish inside the 20s shutdown budget.
+	worker.Handle("video.encode", func(ctx context.Context, job *relayq.Job) error {
+		log.Info("encoding video", "job", job.ID, "delivery", job.Delivery)
+		if err := pause(ctx, 15*time.Second); err != nil {
+			return err
+		}
+		log.Info("video encoded", "job", job.ID, "delivery", job.Delivery)
+		return nil
+	})
 	worker.Handle("report.flaky", func(ctx context.Context, job *relayq.Job) error {
 		if rand.IntN(2) == 0 {
 			log.Info("flaky job failed, it will retry", "job", job.ID, "attempt", job.Attempt)
