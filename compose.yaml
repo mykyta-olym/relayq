@@ -1,0 +1,71 @@
+name: relayq-demo
+
+x-relayq: &relayq
+  image: relayq-demo
+  build: .
+  restart: unless-stopped
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --maxmemory-policy
+      - noeviction
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+
+  api:
+    <<: *relayq
+    command: ["relayq", "serve", "-addr", ":8080"]
+    environment:
+      RELAYQ_REDIS_URL: redis://redis:6379/0
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+
+  producer:
+    <<: *relayq
+    command: ["demo-producer", "-server", "http://api:8080", "-rate", "10"]
+    depends_on:
+      api:
+        condition: service_healthy
+
+  worker:
+    <<: *relayq
+    command: ["demo-worker", "-redis", "redis://redis:6379/0"]
+    deploy:
+      replicas: 3
+    # Longer than the 20s drain in demo-worker, or Docker would kill the drain.
+    stop_grace_period: 30s
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  bench:
+    image: relayq-demo
+    build: .
+    profiles: ["bench"]
+    entrypoint: ["relayq-bench", "-redis", "redis://redis:6379/0"]
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  redis-data:
