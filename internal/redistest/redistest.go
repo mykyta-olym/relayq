@@ -119,6 +119,19 @@ func (s *Server) Kill() error {
 	return err
 }
 
+// Pause freezes the server. Connections stay open and nothing answers, which is
+// what a worker sees during a network partition.
+func (s *Server) Pause() error {
+	_, err := docker("pause", s.name)
+	return err
+}
+
+// Unpause resumes a frozen server.
+func (s *Server) Unpause() error {
+	_, err := docker("unpause", s.name)
+	return err
+}
+
 // StartAgain brings a killed server back.
 func (s *Server) StartAgain() error { return s.startAgain() }
 
